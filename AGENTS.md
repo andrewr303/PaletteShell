@@ -11,6 +11,7 @@ Keep this file short: it is loaded by coding agents for ordinary repo work.
 - Parser or attribute work: start with `docs/parser-map.md`.
 - Script execution or output behavior: start with `docs/execution-map.md`.
 - Command Palette pages, forms, or settings: start with `docs/ui-map.md`.
+- Agent sessions (starting coding-agent CLIs in folders, favorites, folder search): start with `docs/agent-sessions-map.md`.
 
 ## Reference Discipline
 
@@ -32,6 +33,7 @@ generated output when source files or focused docs answer the question.
 - `PaletteShellExtension/Classes/ScriptRunner.cs` - PowerShell process execution.
 - `PaletteShellExtension/Classes/ScriptOutputHandler.cs` - stdout-to-output-mode handling.
 - `PaletteShellExtension/Pages/PaletteShellExtensionPage.cs` - main command list, script discovery, and built-in commands.
+- `PaletteShellExtension/Classes/AgentSessionService.cs` - Agent sessions state (agents, favorite/default/recent folders, folder index, launch).
 - `PaletteShellExtension/Forms/` - generated forms for setup, script parameters, and script creation.
 - `PaletteShellExtension/SampleScripts/` - bundled scripts copied to the user's scripts folder.
 

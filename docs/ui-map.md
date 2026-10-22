@@ -11,6 +11,8 @@ Use this when changing Command Palette pages, forms, list items, settings, pinni
 - `PaletteShellExtension/Pages/ScriptResultPage.cs` - single result page.
 - `PaletteShellExtension/Pages/ScriptListPage.cs` - searchable list and live provider output.
 - `PaletteShellExtension/Pages/NewScriptWizardPage.cs` - new-script wizard page.
+- `PaletteShellExtension/Pages/AgentSessionsPage.cs`, `SessionFolderPickerPage.cs`, `FavoriteFoldersPage.cs`, `AgentPickerPage.cs` - Agent sessions pages; see [agent-sessions-map.md](agent-sessions-map.md).
+- `PaletteShellExtension/Pages/FormContentPage.cs` - generic single-form page used by the Agent sessions forms.
 - `PaletteShellExtension/Forms/` - form definitions and field mapping.
 - `PaletteShellExtension/Commands/` - built-in and per-script commands.
 - `PaletteShellExtension/Classes/PinnedScripts.cs` - pin storage and ordering.
@@ -21,6 +23,7 @@ Use this when changing Command Palette pages, forms, list items, settings, pinni
 - `PaletteShellExtension.Tests/ScriptParameterFormTests.cs`
 - `PaletteShellExtension.Tests/NewScriptWizardFormTests.cs`
 - `PaletteShellExtension.Tests/InstalledCommunityScriptsTests.cs`
+- `PaletteShellExtension.Tests/AgentSessionFormsTests.cs`, `AgentSessionServiceTests.cs`
 - Parser/execution tests may also be needed when UI routes depend on manifest behavior.
 
 ## Rules Of Thumb

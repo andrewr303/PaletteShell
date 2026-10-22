@@ -22,7 +22,16 @@ dotnet build PaletteShellExtension/PaletteShellExtension.csproj
 | Path | Responsibility |
 |------|----------------|
 | `PaletteShellExtension.cs` | Extension entry point; provides the commands provider to Command Palette |
-| `PaletteShellExtensionCommandsProvider.cs` | Registers the top-level PaletteShell command |
+| `PaletteShellExtensionCommandsProvider.cs` | Registers the top-level commands: Agent sessions, one per agent CLI (optional), and PaletteShell |
+| `Classes/AgentSessionService.cs` | Agent sessions state and operations: agents, favorite/default/recent folders, background folder index, launching |
+| `Classes/AgentCli.cs` | Agent CLI model and its `Name \| command args` Settings line format |
+| `Classes/SessionFolders.cs` | Folder path normalization, the favorites line format, and recent folders (`agent-session-recents.txt`) |
+| `Classes/FolderSearch.cs` | Bounded folder index under the default folder and favorites, search ranking, typed-path completion |
+| `Classes/AgentSessionLauncher.cs` | Builds and starts the Windows Terminal / console session for an agent in a folder |
+| `Classes/WindowsCommandLine.cs` | Windows (MSVCRT) argument quoting and program/argument splitting |
+| `Pages/AgentSessionsPage.cs`, `SessionFolderPickerPage.cs`, `FavoriteFoldersPage.cs`, `AgentPickerPage.cs` | Agent sessions hub, per-agent folder picker, favorites management, folder-first agent choice |
+| `Forms/AgentCliForm.cs`, `FavoriteFolderForm.cs`, `DefaultSessionFolderForm.cs` | Add/edit agent, add favorite, set default folder |
+| `Commands/LaunchAgentSessionCommand.cs` | Starts an agent in a folder (optionally creating the folder) |
 | `Pages/PaletteShellExtensionPage.cs` | Main list page — discovery, sample/module/`AGENTS.md` copying, item building |
 | `Classes/SampleScriptInstaller.cs` | Tracks the hash of each written sample plus the last synced app version (in `sample-scripts.json`) so an unchanged install can skip the sample sync |
 | `PowerShellScriptParser.cs` | Parses script metadata and parameters with a lightweight text parser |

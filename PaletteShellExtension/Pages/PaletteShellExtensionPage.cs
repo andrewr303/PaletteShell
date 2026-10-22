@@ -39,8 +39,13 @@ internal sealed partial class PaletteShellExtensionPage : ListPage
     // alone — the folder may come back, and the user can repoint via setup meanwhile.
     private string? _folderError;
 
-    public PaletteShellExtensionPage()
+    // Linked from the built-in commands so Agent sessions is reachable from here too; null when
+    // it failed to initialize (or in tests that don't need it).
+    private readonly AgentSessionsPage? _agentSessions;
+
+    public PaletteShellExtensionPage(AgentSessionsPage? agentSessions = null)
     {
+        _agentSessions = agentSessions;
         Icon = IconHelpers.FromRelativePath("Assets\\StoreLogo.png");
         Title = $"PaletteShell v{AppVersion.Current}";
         Name = "PaletteShell";
@@ -343,6 +348,15 @@ internal sealed partial class PaletteShellExtensionPage : ListPage
             {
                 Title = "⚠ Couldn't read the scripts folder",
                 Subtitle = $"'{_folderError}' — reconnect it, then press Enter to retry",
+            });
+        }
+
+        if (_agentSessions is not null)
+        {
+            items.Add(new ListItem(_agentSessions)
+            {
+                Title = "Agent sessions",
+                Subtitle = "Start a coding agent CLI in a folder",
             });
         }
 
