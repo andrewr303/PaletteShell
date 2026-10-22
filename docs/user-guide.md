@@ -5,12 +5,15 @@ or split references in [README.md](README.md).
 
 ![PaletteShell — run your PowerShell scripts from the Windows Command Palette](../StoreAssets/PaletteShell_StoreHero_1920x1080.png)
 
-**PaletteShell** is a [Windows Command Palette](https://learn.microsoft.com/windows/powertoys/command-palette/overview) extension that lets you run custom PowerShell scripts directly from the Command Palette. Transform clipboard text, generate GUIDs, format JSON, and automate your daily workflows — all without leaving your keyboard.
+**PaletteShell** is a [Windows Command Palette](https://learn.microsoft.com/windows/powertoys/command-palette/overview) extension that starts coding agent CLIs in the folder you pick and runs custom PowerShell scripts directly from the Command Palette. Open `claude` or `codex` in a project, transform clipboard text, generate GUIDs, format JSON, and automate your daily workflows — all without leaving your keyboard.
 
 > 💡 Looking for ready-made scripts? Browse the community script library at **[paletteshell/PaletteShellScripts](https://github.com/paletteshell/PaletteShellScripts)** — also reachable from inside the palette via **"Browse community scripts"**, which opens the Script Manager when installed and falls back to the GitHub repo.
 
 ## 🌟 Features
 
+- **🤖 Agent Sessions**: Start a coding agent CLI — `andrewcode`, `claude`, `agy`, `muse`, `codex`, or any command you add — in the folder you pick, in Windows Terminal. See [Agent Sessions](#-agent-sessions)
+- **⭐ Favorite & Default Folders**: Keep the folders you work in one keystroke away, and choose where sessions start by default (your user folder unless you change it)
+- **🔎 Folder Search**: Find project folders under your favorites and default folder by name, or type a path with completion
 - **🚀 Quick Access**: Run PowerShell scripts directly from the Windows Command Palette
 - **📋 Clipboard Utilities**: Transform and manipulate clipboard text with one keystroke
 - **📝 Parameter Support**: Scripts with parameters get an interactive input form, generated from the script's own `param()` block
@@ -44,6 +47,28 @@ The first time you open PaletteShell it asks which folder to use for your script
 4. Browse the bundled sample scripts, choose **Create new script** to scaffold your own, or **Browse community scripts** to open the Script Manager or the [community repo](https://github.com/paletteshell/PaletteShellScripts).
 5. Edit your scripts in your scripts folder and run **Reload scripts** to see changes.
 
+
+## 🤖 Agent Sessions
+
+Agent sessions open a coding agent CLI in a folder of your choice without leaving the keyboard.
+
+1. Open the Command Palette and type the agent's name — **Claude Code**, **Codex**, **AndrewCode**, **Antigravity** (`agy`), **Muse** — or **Agent sessions** for the full list.
+2. Press **Enter** to choose a folder:
+   - With nothing typed you get your **default folder** (your user folder until you set another), your **favorites**, and **recent** folders.
+   - Type to **search**: favorites and recent folders, plus project folders found up to three levels under your default folder and favorites (git repositories rank higher; `node_modules`, `bin`, `obj`, dot-folders and similar are skipped).
+   - Type a **path** — `C:\src\`, `~\code\app`, `%USERPROFILE%\dev` — to list its subfolders. If the folder doesn't exist yet, PaletteShell offers to create it and start the agent there.
+3. Press **Enter** on a folder to open the session. Each folder's context menu can start a different agent there, add or remove it as a favorite, make it the default folder, open it in File Explorer, or copy its path.
+
+Each agent's own context menu (in Command Palette search or under **Agent sessions**) has **Start in …** shortcuts for the default folder and every favorite, so a frequent combination takes no folder search at all.
+
+**Managing agents and folders**
+
+- **Agent sessions → Add agent CLI** adds any command-line program; **Edit agent** / **Remove agent** are on each agent's context menu, and **Restore built-in agents** brings back any of the five defaults you removed.
+- **Agent sessions → Favorite folders** adds, removes, and reorders favorites; Enter on a favorite asks which agent to start there.
+- **Agent sessions → Default folder** sets (or clears) where sessions start by default.
+- The same lists are plain text on the [Settings](extension-behavior-reference.md#settings) page: agents one per line as `Name | command and arguments` (e.g. `Claude Code | claude --model opus`), favorites one folder per line.
+
+**How the session opens.** By default PaletteShell opens a new Windows Terminal window (or a new tab, if you prefer) running PowerShell 7 — or Windows PowerShell when PowerShell 7 isn't installed — which changes to the folder and runs the agent. The terminal stays open at a prompt in that folder when the agent exits. Your PowerShell profile loads as usual, so profile aliases and functions work as agent commands. If an agent shows "wasn't found on PATH", it will still be tried — but check the command, or use a full path. If Windows PowerShell's execution policy blocks an npm-installed CLI's `.ps1` shim, switch the session shell to PowerShell 7 or Command Prompt in Settings.
 
 ## 📦 Sample Scripts
 

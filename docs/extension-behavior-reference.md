@@ -93,12 +93,31 @@ The bundled `PaletteScriptAttributes.psm1` module exposes `Get-ClipboardText` / 
 
 Use a script item's **Pin to top** context command to keep it above the rest of the list; **Unpin** puts it back. Pinning is a per-user UI preference, so it lives outside the `.ps1` files — toggling a pin never rewrites your script. The pinned set is stored in a plain `pinned.txt` alongside your scripts (one entry per line, keyed by the script's path relative to the scripts folder), so it survives reloads and restarts and travels with the folder if you sync or copy it. Renaming or moving a script simply orphans its old pin, which is harmless. Pointing PaletteShell at a **different** scripts folder (see [Settings](#settings)) works the same way: it's a fresh folder, so it starts with nothing pinned — just re-pin what you need there.
 
+### Agent sessions
+
+**Agent sessions** (a top-level command, also linked from the PaletteShell page) starts a coding-agent CLI in a folder. The provider also lists each agent as its own top-level command unless **Show each agent in Command Palette search** is off.
+
+- **Agents** come from the **Agent CLIs** setting, one per line as `Name | command and arguments` (name optional; blank lines and `#` lines ignored). A fresh install lists AndrewCode (`andrewcode`), Claude Code (`claude`), Antigravity (`agy`), Muse (`muse`), and Codex (`codex`). The palette's add/edit/remove forms rewrite only the lines they change, so comments and hand-written lines survive.
+- **Folders.** The picker shows the default folder (the **Default session folder** setting, or the user folder when blank or missing), the **Favorite session folders** (one per line, normalized and de-duplicated; surrounding quotes are ignored; missing folders are kept and flagged), and the 12 most recent session folders (stored in `agent-session-recents.txt` beside `settings.json`). Existence checks on network folders give up after a fraction of a second, so an offline share never stalls the palette.
+- **Settings vs. palette edits.** If the Settings page was already open when a list was changed from the palette, saving Settings keeps the palette's change instead of writing back the stale list; a list you actually edited on the Settings page still wins.
+- **Search** matches every typed term against favorites, recents, and a background index of folders up to three levels below the default folder and each favorite (at most 10,000 folders or 4 seconds per build, refreshed after 3 minutes or when those roots change). Hidden/system folders, dot-folders, links/junctions' contents, and build/dependency folders (`node_modules`, `bin`, `obj`, `target`, `dist`, `build`, `out`, `packages`, `__pycache__`, `venv`, `AppData`, …) aren't walked, and a folder containing `.git` below a search root is treated as a leaf (a root that is a repo is still searched). Folder-name matches outrank parent-path matches; favorites, recents, the default folder, and git repos get a boost.
+- **Typed paths** (`C:\…`, `\\server\share`, `~\…`, `%VAR%\…`, optionally quoted) list the folder itself, then matching subfolders of the parent; a path whose parent exists but which doesn't exist itself also offers **New folder** (create and start) as the last row, so Enter on a half-typed name opens the matching folder.
+- **Launching.** The agent always runs through a shell so npm/winget `.cmd`/`.ps1` shims and profile aliases resolve. With Windows Terminal: `wt -w new|0 new-tab -d <folder> --title "<agent> · <folder>" <shell> …`; otherwise the shell gets its own console window. PowerShell receives `Set-Location -LiteralPath '<folder>'; & '<command>' <arguments>` via `-EncodedCommand` (plus `-NoExit` when **Keep the terminal open** is on); cmd receives `/s /k "<command line>"` (prefixed with `pushd "<folder>" &&` for a UNC folder, which cmd can't otherwise use as its directory). The child's `PATH` is re-read from the registry (machine + user), so CLIs installed after Command Palette started are found. A missing folder, shell, or terminal opens an explanatory dialog; nothing is launched.
+
 ## Settings
 
 PaletteShell's top-level command has a built-in **Settings** page (the gear icon next to it in the Command Palette) with:
 
 | Setting | Purpose |
 |---------|---------|
+| **Agent CLIs** | The agents listed in Agent sessions, one per line as `Name \| command and arguments`. Arguments use the session shell's syntax. |
+| **Favorite session folders** | One folder per line; listed first in the folder picker and used as search roots. |
+| **Default session folder** | Where sessions start by default and a search root. Blank means your user folder. |
+| **Session terminal** | `Windows Terminal when installed` (default), `Windows Terminal` (fail if missing), or `Console window`. |
+| **Windows Terminal window** | Open each session in a new window (default) or a new tab in the most recent window. |
+| **Session shell** | `Auto` (PowerShell 7, else Windows PowerShell), `PowerShell 7`, `Windows PowerShell 5.1`, or `Command Prompt`. |
+| **Keep the terminal open after the agent exits** | Leaves a prompt in the session folder instead of closing the tab (default on). |
+| **Show each agent in Command Palette search** | Lists every agent as its own top-level command (default on). |
 | **Scripts folder** | Where PaletteShell looks for `.ps1` scripts. Changing this doesn't move your existing scripts or `pinned.txt` — run **"Reload scripts"** afterward to point PaletteShell at the new folder. |
 | **Default script host** | `Auto` (recommended), `PowerShell 7 (pwsh)`, or `Windows PowerShell 5.1` — used for any script that doesn't declare its own `[ScriptHost(...)]`. |
 | **Default timeout** | Milliseconds to wait for a script that doesn't declare its own `[ScriptTimeout(...)]` before treating it as timed out. |

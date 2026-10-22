@@ -11,7 +11,7 @@ namespace PaletteShellExtension.Classes;
 /// Owns PaletteShell's extension-level settings (surfaced by the host as the provider's
 /// settings page) and persists them to a JSON file under the extension's app-data folder.
 /// </summary>
-internal sealed class PaletteShellSettingsManager : JsonSettingsManager
+internal sealed class PaletteShellSettingsManager : JsonSettingsManager, IAgentSessionSettings
 {
     public const string HostAuto = "auto";
     public const string HostPwsh = "pwsh";
@@ -29,6 +29,148 @@ internal sealed class PaletteShellSettingsManager : JsonSettingsManager
     private const int MaxCleanupDays = 365;
 
     public static PaletteShellSettingsManager Instance { get; } = new();
+
+    /// <summary>The extension's app-data folder, holding settings.json and other local state.</summary>
+    internal static string SettingsDirectory => Utilities.BaseSettingsPath("PaletteShellExtension");
+
+    // ----- Agent sessions -----------------------------------------------------------------
+
+    private readonly TextSetting _sessionAgents = new(
+        "sessionAgents",
+        "Agent CLIs",
+        "One per line, as \"Name | command and arguments\" — for example \"Claude Code | claude --model opus\". Each one can be started in any folder from \"Agent sessions\".",
+        AgentCliList.DefaultText)
+    {
+        Multiline = true,
+    };
+
+    private readonly TextSetting _sessionFavoriteFolders = new(
+        "sessionFavoriteFolders",
+        "Favorite session folders",
+        "One folder per line. Listed first when you choose where to start a session, and searched (a few levels deep) for project folders.",
+        string.Empty)
+    {
+        Multiline = true,
+    };
+
+    private readonly TextSetting _sessionDefaultFolder = new(
+        "sessionDefaultFolder",
+        "Default session folder",
+        "Where sessions start when you don't pick a folder. Leave blank to use your user folder.",
+        string.Empty);
+
+    private readonly ChoiceSetSetting _sessionTerminal = new(
+        "sessionTerminal",
+        "Session terminal",
+        "Where agent sessions open.",
+        new List<ChoiceSetSetting.Choice>
+        {
+            new("Windows Terminal when installed (recommended)", "auto"),
+            new("Windows Terminal", "wt"),
+            new("Console window", "console"),
+        });
+
+    private readonly ChoiceSetSetting _sessionWindow = new(
+        "sessionWindow",
+        "Windows Terminal window",
+        "Open each session in a new window, or as a new tab in the most recently used window.",
+        new List<ChoiceSetSetting.Choice>
+        {
+            new("New window", "new"),
+            new("New tab in the most recent window", "tab"),
+        });
+
+    private readonly ChoiceSetSetting _sessionShell = new(
+        "sessionShell",
+        "Session shell",
+        "Shell that runs the agent CLI. Agent arguments use this shell's syntax.",
+        new List<ChoiceSetSetting.Choice>
+        {
+            new("Auto — PowerShell 7, else Windows PowerShell (recommended)", "auto"),
+            new("PowerShell 7 (pwsh)", HostPwsh),
+            new("Windows PowerShell 5.1", HostPowerShell),
+            new("Command Prompt (cmd)", "cmd"),
+        });
+
+    private readonly ToggleSetting _sessionKeepOpen = new(
+        "sessionKeepOpen",
+        "Keep the terminal open after the agent exits",
+        "Leaves a shell prompt in the session folder when the agent CLI exits, instead of closing the tab.",
+        true);
+
+    private readonly ToggleSetting _sessionShowAgentsInRoot = new(
+        "sessionShowAgentsInRoot",
+        "Show each agent in Command Palette search",
+        "Lists every agent CLI as its own command (type \"codex\" or \"claude\" to jump straight to its folder picker), in addition to \"Agent sessions\".",
+        true);
+
+    /// <summary>Raised after the user saves the Settings page. Programmatic edits don't raise it;
+    /// <see cref="AgentSessionService"/> announces those itself.</summary>
+    public event EventHandler? AgentSessionSettingsChanged;
+
+    // The lists below are edited from the palette as well as the Settings page; see
+    // SettingsEditGuard for why a Settings save is reconciled against palette edits.
+    private readonly SettingsEditGuard _editGuard = new();
+
+    private static string NormalizeAgents(string? text) => AgentCliList.Format(AgentCliList.Parse(text));
+
+    private static string NormalizeFavorites(string? text) => FavoriteFolderList.Format(FavoriteFolderList.Parse(text));
+
+    private static string NormalizeFolder(string? text) => FolderPaths.TryNormalize(text) ?? string.Empty;
+
+    string IAgentSessionSettings.AgentsText
+    {
+        get => _sessionAgents.Value ?? string.Empty;
+        set => SetFromPalette(_sessionAgents, value, NormalizeAgents);
+    }
+
+    string IAgentSessionSettings.FavoriteFoldersText
+    {
+        get => _sessionFavoriteFolders.Value ?? string.Empty;
+        set => SetFromPalette(_sessionFavoriteFolders, value, NormalizeFavorites);
+    }
+
+    string? IAgentSessionSettings.DefaultSessionFolder
+    {
+        get => string.IsNullOrWhiteSpace(_sessionDefaultFolder.Value) ? null : _sessionDefaultFolder.Value.Trim();
+        set => SetFromPalette(_sessionDefaultFolder, value ?? string.Empty, NormalizeFolder);
+    }
+
+    private void SetFromPalette(TextSetting setting, string value, Func<string?, string> normalize)
+    {
+        _editGuard.RecordPaletteEdit(setting.Key, setting.Value, value, normalize);
+        setting.Value = value;
+        SaveSettings();
+    }
+
+    // Called when the Settings page is saved, before persisting: undo any stale write-back.
+    private void ReconcileSettingsPageSave()
+    {
+        _sessionAgents.Value = _editGuard.Reconcile(_sessionAgents.Key, _sessionAgents.Value, NormalizeAgents);
+        _sessionFavoriteFolders.Value = _editGuard.Reconcile(_sessionFavoriteFolders.Key, _sessionFavoriteFolders.Value, NormalizeFavorites);
+        _sessionDefaultFolder.Value = _editGuard.Reconcile(_sessionDefaultFolder.Key, _sessionDefaultFolder.Value, NormalizeFolder);
+    }
+
+    AgentLaunchSettings IAgentSessionSettings.LaunchSettings => new(
+        Terminal: _sessionTerminal.Value switch
+        {
+            "wt" => SessionTerminal.WindowsTerminal,
+            "console" => SessionTerminal.Console,
+            _ => SessionTerminal.Auto,
+        },
+        Shell: _sessionShell.Value switch
+        {
+            HostPwsh => SessionShell.Pwsh,
+            HostPowerShell => SessionShell.WindowsPowerShell,
+            "cmd" => SessionShell.Cmd,
+            _ => SessionShell.Auto,
+        },
+        Window: _sessionWindow.Value == "tab" ? TerminalWindowTarget.NewTab : TerminalWindowTarget.NewWindow,
+        KeepOpen: _sessionKeepOpen.Value);
+
+    bool IAgentSessionSettings.ShowAgentsInRoot => _sessionShowAgentsInRoot.Value;
+
+    // ----- Scripts --------------------------------------------------------------------------
 
     private readonly ChoiceSetSetting _defaultHost = new(
         "defaultHost",
@@ -155,7 +297,7 @@ internal sealed class PaletteShellSettingsManager : JsonSettingsManager
         // on any failure, log and run this session with defaults instead of dying.
         try
         {
-            var settingsDir = Utilities.BaseSettingsPath("PaletteShellExtension");
+            var settingsDir = SettingsDirectory;
             Directory.CreateDirectory(settingsDir);
             FilePath = Path.Combine(settingsDir, "settings.json");
         }
@@ -163,6 +305,17 @@ internal sealed class PaletteShellSettingsManager : JsonSettingsManager
         {
             Log.Error("Failed to prepare the settings folder; settings won't persist this session", ex);
         }
+
+        // Agent sessions first: they're the most-used settings and the most likely to need
+        // editing (the agent and favorite lists are editable here as well as from the palette).
+        Settings.Add(_sessionAgents);
+        Settings.Add(_sessionFavoriteFolders);
+        Settings.Add(_sessionDefaultFolder);
+        Settings.Add(_sessionTerminal);
+        Settings.Add(_sessionWindow);
+        Settings.Add(_sessionShell);
+        Settings.Add(_sessionKeepOpen);
+        Settings.Add(_sessionShowAgentsInRoot);
 
         Settings.Add(_defaultHost);
         Settings.Add(_defaultTimeoutMs);
@@ -181,7 +334,12 @@ internal sealed class PaletteShellSettingsManager : JsonSettingsManager
             Log.Error("Failed to load settings; continuing with defaults", ex);
         }
 
-        Settings.SettingsChanged += (_, _) => SaveSettings();
+        Settings.SettingsChanged += (_, _) =>
+        {
+            ReconcileSettingsPageSave();
+            SaveSettings();
+            AgentSessionSettingsChanged?.Invoke(this, EventArgs.Empty);
+        };
     }
 
     /// <summary>
