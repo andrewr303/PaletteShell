@@ -152,4 +152,33 @@ public class AgentSessionLauncherTests
         Assert.False(AgentSessionLauncher.IsOnPath("missingagent", [temp.Path]));
         Assert.True(AgentSessionLauncher.IsOnPath(Path.Combine(temp.Path, "fakeagent.ps1")));
     }
+
+    [Theory]
+    [InlineData("Sean\u2019s repo", "Sean\u2019\u2019s repo")]
+    [InlineData("x\u2018;calc;\u2019", "x\u2018\u2018;calc;\u2019\u2019")]
+    [InlineData("a\u201Ab\u201Bc'd", "a\u201A\u201Ab\u201B\u201Bc''d")]
+    public void SingleQuote_DoublesTypographicQuotesPowerShellAlsoEndsStringsOn(string value, string escaped)
+    {
+        Assert.Equal($"'{escaped}'", PowerShellQuoting.SingleQuote(value));
+    }
+
+    [Fact]
+    public void Build_CmdOnAUncFolder_MapsItWithPushd()
+    {
+        const string share = @"\\server\share\repo";
+
+        var spec = AgentSessionLauncher.Build(Claude, share, new AgentLaunchSettings(), null, Cmd, SessionShell.Cmd);
+
+        Assert.Equal($"/s /k \"pushd \"{share}\" && claude --model opus\"", spec.Arguments);
+    }
+
+    [Fact]
+    public void Build_WindowsTerminalWithCmd_EscapesSemicolonsForWindowsTerminal()
+    {
+        var agent = new AgentCli("Tool", "tool", "--list a;b");
+
+        var spec = AgentSessionLauncher.Build(agent, Folder("p"), new AgentLaunchSettings(), WindowsTerminal, Cmd, SessionShell.Cmd);
+
+        Assert.Equal("tool --list a\\;b", CommandLineArgv.Parse(spec.Arguments)[^1]);
+    }
 }

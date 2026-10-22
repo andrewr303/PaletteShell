@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Linq;
 using PaletteShellExtension.Classes;
 using Xunit;
@@ -99,5 +101,34 @@ public class AgentCliTests
     public void Key_ChangesWhenArgumentsChange()
     {
         Assert.NotEqual(new AgentCli("A", "a", "").Key, new AgentCli("A", "a", "--x").Key);
+    }
+
+    [Fact]
+    public void Create_UnquotedPathWithSpacesToAnExistingFile_IsTheWholeProgram()
+    {
+        using var temp = new TestFolder();
+        var tool = Path.Combine(temp.Create("My Tools"), "my tool.exe");
+        File.WriteAllText(tool, "");
+
+        Assert.Equal(new AgentCli("my tool", tool, ""), AgentCliList.Create("", tool, null));
+    }
+
+    [Fact]
+    public void Create_NameStartingWithHash_IsKeptAsAnAgentNotAComment()
+    {
+        var agent = AgentCliList.Create("#1 agent", "claude", null)!;
+
+        Assert.Equal("1 agent", agent.Name);
+        Assert.Equal([agent], AgentCliList.Parse(AgentCliList.Format([agent])));
+    }
+
+    [Fact]
+    public void ReadLines_KeepsCommentsAndInvalidLinesVerbatim()
+    {
+        const string text = "# mine\nClaude Code | claude\nbroken |\n";
+        var lines = AgentCliList.ReadLines(text);
+
+        Assert.Equal([null, "claude", null, null], lines.Select(l => l.Agent?.Command));
+        Assert.Equal(text.Replace("\n", Environment.NewLine, StringComparison.Ordinal), AgentCliList.WriteLines(lines));
     }
 }

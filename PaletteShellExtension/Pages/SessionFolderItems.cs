@@ -22,8 +22,9 @@ internal static class SessionFolderItems
         FolderPaths.Same(folder, FolderPaths.UserFolder) ? "Home" : FolderPaths.DisplayName(folder);
 
     /// <summary>Context menu for a folder row: start it with the other agents, favorite it, make it
-    /// the default, open it in Explorer, or copy its path.</summary>
-    public static CommandContextItem[] FolderCommands(AgentSessionService service, string folder, AgentCli? currentAgent)
+    /// the default, open it in Explorer, or copy its path. <paramref name="defaultFolder"/> is
+    /// passed in because callers build many rows at once and it can cost a disk probe.</summary>
+    public static CommandContextItem[] FolderCommands(AgentSessionService service, string folder, AgentCli? currentAgent, string defaultFolder)
     {
         var items = new List<CommandContextItem>();
         foreach (var agent in service.Agents.Where(a => currentAgent is null || a.Key != currentAgent.Key))
@@ -32,7 +33,7 @@ internal static class SessionFolderItems
         }
 
         items.Add(new CommandContextItem(new ToggleFavoriteFolderCommand(service, folder)));
-        if (!FolderPaths.Same(service.DefaultFolder, folder))
+        if (!FolderPaths.Same(defaultFolder, folder))
         {
             items.Add(new CommandContextItem(new SetDefaultSessionFolderCommand(service, folder)));
         }
@@ -46,9 +47,10 @@ internal static class SessionFolderItems
     /// a frequent folder is a context-menu pick away without opening the folder picker.</summary>
     public static List<CommandContextItem> QuickStarts(AgentSessionService service, AgentCli agent)
     {
-        var folders = new List<string> { service.DefaultFolder };
+        var defaultFolder = service.DefaultFolder;
+        var folders = new List<string> { defaultFolder };
         folders.AddRange(service.Favorites
-            .Where(f => !FolderPaths.Same(f, service.DefaultFolder))
+            .Where(f => !FolderPaths.Same(f, defaultFolder))
             .Take(MaxQuickStartFavorites));
 
         return [.. folders.Select(folder => new CommandContextItem(new LaunchAgentSessionCommand(service, agent, folder))

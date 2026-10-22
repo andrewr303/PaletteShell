@@ -29,7 +29,8 @@ internal sealed partial class LaunchAgentSessionCommand(
             {
                 Directory.CreateDirectory(folder);
             }
-            else if (!FolderPaths.Exists(folder))
+            // Unknown (a share slow to answer) goes ahead: the terminal will say if it's gone.
+            else if (FolderPaths.ProbeExists(folder, 3000) == false)
             {
                 return WarningDialog.Show("Folder not found", $"'{folder}' doesn't exist or isn't reachable right now.");
             }

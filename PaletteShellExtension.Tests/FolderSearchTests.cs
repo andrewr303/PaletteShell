@@ -180,4 +180,26 @@ public class FolderSearchTests
 
         Assert.Empty(FolderSearch.CompletePath(Path.Combine(temp.Path, "nope", "x"), 10));
     }
+
+    [Fact]
+    public void Build_RootThatIsARepo_IsStillWalked()
+    {
+        using var temp = new TestFolder();
+        temp.Create(".git");
+        var project = temp.Create("project");
+
+        var entries = FolderIndex.Build([temp.Path], new FolderIndexOptions());
+
+        Assert.True(entries[0].IsRepo);
+        Assert.Contains(entries, e => e.Path == project);
+    }
+
+    [Fact]
+    public void CompletePath_BareHome_ListsTheUserFoldersChildren()
+    {
+        var home = FolderPaths.UserFolder;
+        var expected = FolderSearch.CompletePath(home + Path.DirectorySeparatorChar, 5);
+
+        Assert.Equal(expected, FolderSearch.CompletePath("~" + Path.DirectorySeparatorChar, 5));
+    }
 }

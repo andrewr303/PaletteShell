@@ -82,43 +82,62 @@ internal sealed class AgentSessionService
     /// <summary>The default folder the user set, normalized, or null when unset.</summary>
     public string? ConfiguredDefaultFolder => FolderPaths.TryNormalize(_settings.DefaultSessionFolder);
 
-    /// <summary>Where sessions start by default: the configured folder while it exists, else the
-    /// user folder — so an unplugged drive degrades to home rather than a failed launch.</summary>
+    /// <summary>Where sessions start by default: the configured folder unless it's confirmed
+    /// missing, else the user folder — so an unplugged drive degrades to home rather than a failed
+    /// launch, and a share that's merely slow to answer doesn't stall the caller.</summary>
     public string DefaultFolder =>
-        ConfiguredDefaultFolder is { } configured && FolderPaths.Exists(configured) ? configured : FolderPaths.UserFolder;
+        ConfiguredDefaultFolder is { } configured && !FolderPaths.LooksMissing(configured) ? configured : FolderPaths.UserFolder;
 
     // ----- Folders ----------------------------------------------------------------------------
 
     public bool IsFavorite(string folder) => Favorites.Any(f => FolderPaths.Same(f, folder));
 
     /// <summary>Adds a favorite at the end of the list. False when it's already a favorite.</summary>
-    public bool AddFavorite(string folder) => EditFavorites(list =>
+    public bool AddFavorite(string folder) => EditFavorites(lines =>
     {
-        if (list.Any(f => FolderPaths.Same(f, folder)))
+        if (lines.Any(l => FolderPaths.Same(l.Folder, folder)))
         {
             return false;
         }
 
-        list.Add(folder);
+        lines.Add(new FavoriteFolderLine(folder, folder));
         return true;
     });
 
     public bool RemoveFavorite(string folder) =>
-        EditFavorites(list => list.RemoveAll(f => FolderPaths.Same(f, folder)) > 0);
+        EditFavorites(lines => lines.RemoveAll(l => FolderPaths.Same(l.Folder, folder)) > 0);
 
-    /// <summary>Moves a favorite up (negative) or down (positive). False at either end.</summary>
-    public bool MoveFavorite(string folder, int offset) => EditFavorites(list =>
+    /// <summary>Moves a favorite up (negative) or down (positive) among the favorites. False at
+    /// either end. Comment and other non-folder lines stay where they are.</summary>
+    public bool MoveFavorite(string folder, int offset) => EditFavorites(lines =>
     {
-        var from = list.FindIndex(f => FolderPaths.Same(f, folder));
+        // The line slots that hold favorites (first occurrence of each folder), in order.
+        var slots = new List<int>();
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (lines[i].Folder is { } f && !slots.Any(s => FolderPaths.Same(lines[s].Folder, f)))
+            {
+                slots.Add(i);
+            }
+        }
+
+        var from = slots.FindIndex(s => FolderPaths.Same(lines[s].Folder, folder));
         var to = from + offset;
-        if (from < 0 || to < 0 || to >= list.Count)
+        if (from < 0 || to < 0 || to >= slots.Count)
         {
             return false;
         }
 
-        var item = list[from];
-        list.RemoveAt(from);
-        list.Insert(to, item);
+        // Reorder the favorites, then write them back into the same slots.
+        var ordered = slots.Select(s => lines[s]).ToList();
+        var moving = ordered[from];
+        ordered.RemoveAt(from);
+        ordered.Insert(to, moving);
+        for (var i = 0; i < slots.Count; i++)
+        {
+            lines[slots[i]] = ordered[i];
+        }
+
         return true;
     });
 
@@ -133,17 +152,19 @@ internal sealed class AgentSessionService
         RaiseChanged();
     }
 
-    private bool EditFavorites(Func<List<string>, bool> edit)
+    // Edits operate on the stored lines, not the parsed list, so comments and lines the user
+    // wrote by hand on the Settings page survive a palette edit.
+    private bool EditFavorites(Func<List<FavoriteFolderLine>, bool> edit)
     {
         lock (_gate)
         {
-            var list = FavoriteFolderList.Parse(_settings.FavoriteFoldersText);
-            if (!edit(list))
+            var lines = FavoriteFolderList.ReadLines(_settings.FavoriteFoldersText);
+            if (!edit(lines))
             {
                 return false;
             }
 
-            _settings.FavoriteFoldersText = FavoriteFolderList.Format(list);
+            _settings.FavoriteFoldersText = FavoriteFolderList.WriteLines(lines);
         }
 
         RaiseChanged();
@@ -154,34 +175,34 @@ internal sealed class AgentSessionService
 
     /// <summary>Replaces <paramref name="original"/> with <paramref name="agent"/> in place, or
     /// appends <paramref name="agent"/> when there's no original (or it's gone).</summary>
-    public void SaveAgent(AgentCli? original, AgentCli agent) => EditAgents(list =>
+    public void SaveAgent(AgentCli? original, AgentCli agent) => EditAgents(lines =>
     {
-        var index = original is null ? -1 : list.FindIndex(a => a.Key == original.Key);
+        var index = original is null ? -1 : lines.FindIndex(l => l.Agent?.Key == original.Key);
         if (index >= 0)
         {
-            list[index] = agent;
+            lines[index] = AgentCliList.LineFor(agent);
         }
-        else if (!list.Contains(agent))
+        else if (!lines.Any(l => l.Agent == agent))
         {
-            list.Add(agent);
+            lines.Add(AgentCliList.LineFor(agent));
         }
 
         return true;
     });
 
-    public bool RemoveAgent(AgentCli agent) => EditAgents(list => list.RemoveAll(a => a.Key == agent.Key) > 0);
+    public bool RemoveAgent(AgentCli agent) => EditAgents(lines => lines.RemoveAll(l => l.Agent?.Key == agent.Key) > 0);
 
     /// <summary>Re-adds any built-in agent whose command isn't in the list. Returns how many.</summary>
     public int RestoreBuiltInAgents()
     {
         var added = 0;
-        EditAgents(list =>
+        EditAgents(lines =>
         {
             foreach (var builtIn in AgentCliList.BuiltIn)
             {
-                if (!list.Any(a => string.Equals(a.Command, builtIn.Command, StringComparison.OrdinalIgnoreCase)))
+                if (!lines.Any(l => string.Equals(l.Agent?.Command, builtIn.Command, StringComparison.OrdinalIgnoreCase)))
                 {
-                    list.Add(builtIn);
+                    lines.Add(AgentCliList.LineFor(builtIn));
                     added++;
                 }
             }
@@ -191,17 +212,17 @@ internal sealed class AgentSessionService
         return added;
     }
 
-    private bool EditAgents(Func<List<AgentCli>, bool> edit)
+    private bool EditAgents(Func<List<AgentCliLine>, bool> edit)
     {
         lock (_gate)
         {
-            var list = AgentCliList.Parse(_settings.AgentsText);
-            if (!edit(list))
+            var lines = AgentCliList.ReadLines(_settings.AgentsText);
+            if (!edit(lines))
             {
                 return false;
             }
 
-            _settings.AgentsText = AgentCliList.Format(list);
+            _settings.AgentsText = AgentCliList.WriteLines(lines);
         }
 
         RaiseChanged();

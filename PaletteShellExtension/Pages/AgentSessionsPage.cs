@@ -92,7 +92,7 @@ internal sealed partial class AgentSessionsPage : ListPage
             Title = "Default folder",
             Subtitle = configured is null
                 ? $"{FolderPaths.UserFolder} (your user folder)"
-                : FolderPaths.Exists(configured) ? configured : $"⚠ {configured} not found — using {FolderPaths.UserFolder}",
+                : FolderPaths.LooksMissing(configured) ? $"⚠ {configured} not found — using {FolderPaths.UserFolder}" : configured,
             Icon = SessionIcons.Home,
             Section = "Folders",
         });

@@ -36,8 +36,9 @@ internal sealed record FolderIndexOptions(int MaxDepth = 3, int MaxEntries = 10_
 /// Builds a breadth-first list of the folders under the session search roots (the default folder
 /// and favorites), so "search for a project" is an in-memory filter instead of a disk walk per
 /// keystroke. Bounded by depth, entry count, and time; skips hidden/system folders, dot-folders,
-/// and build/dependency output; and treats a git repository as a leaf — its subfolders are rarely
-/// where you'd start an agent, and skipping them keeps the budget for actual projects.
+/// and build/dependency output; and treats a git repository below a root as a leaf — its
+/// subfolders are rarely where you'd start an agent, and skipping them keeps the budget for
+/// actual projects.
 /// </summary>
 internal static class FolderIndex
 {
@@ -77,7 +78,9 @@ internal static class FolderIndex
             var isRepo = IsRepository(dir);
             entries.Add(new FolderEntry(dir, searchText, depth, isRepo));
 
-            if (!descend || isRepo || depth >= options.MaxDepth)
+            // A root is walked even when it's a repo itself: it was chosen as a place to search
+            // (a home folder that's a dotfiles repo, a favorite monorepo).
+            if (!descend || (isRepo && depth > 0) || depth >= options.MaxDepth)
             {
                 continue;
             }

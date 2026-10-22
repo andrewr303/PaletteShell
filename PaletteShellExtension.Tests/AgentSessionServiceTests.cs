@@ -207,4 +207,35 @@ public sealed class AgentSessionServiceTests : IDisposable
         Assert.False(building);
         Assert.Contains(index, e => e.Path == project);
     }
+
+    // ----- Hand-written Settings lines survive palette edits ----------------------------------
+
+    [Fact]
+    public void AgentEdits_PreserveCommentsAndUnparseableLines()
+    {
+        _settings.AgentsText = "# work agents\nClaude Code | claude\nbroken |";
+        var claude = _service.Agents.Single();
+
+        _service.SaveAgent(claude, claude with { Arguments = "--resume" });
+        _service.SaveAgent(null, new AgentCli("Codex", "codex", ""));
+
+        Assert.Equal(
+            string.Join(Environment.NewLine, "# work agents", "Claude Code | claude --resume", "broken |", "Codex | codex"),
+            _settings.AgentsText);
+    }
+
+    [Fact]
+    public void FavoriteEdits_PreserveCommentsAndKeepThemInPlace()
+    {
+        var a = _temp.Create("a");
+        var b = _temp.Create("b");
+        var c = _temp.Create("c");
+        _settings.FavoriteFoldersText = string.Join("\n", "# work", a, "# play", b);
+
+        _service.MoveFavorite(b, -1);
+        _service.AddFavorite(c);
+        _service.RemoveFavorite(a);
+
+        Assert.Equal(string.Join(Environment.NewLine, "# work", b, "# play", c), _settings.FavoriteFoldersText);
+    }
 }

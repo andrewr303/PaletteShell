@@ -48,7 +48,7 @@ internal sealed partial class FavoriteFoldersPage : ListPage
         for (var i = 0; i < favorites.Count; i++)
         {
             var folder = favorites[i];
-            var exists = FolderPaths.Exists(folder);
+            var missing = FolderPaths.LooksMissing(folder);
 
             var commands = new List<CommandContextItem>
             {
@@ -75,8 +75,8 @@ internal sealed partial class FavoriteFoldersPage : ListPage
             items.Add(new ListItem(new AgentPickerPage(_service, folder))
             {
                 Title = SessionFolderItems.Title(folder),
-                Subtitle = exists ? folder : $"⚠ Not found — {folder}",
-                Icon = exists ? SessionIcons.FavoriteFilled : SessionIcons.Warning,
+                Subtitle = missing ? $"⚠ Not found — {folder}" : folder,
+                Icon = missing ? SessionIcons.Warning : SessionIcons.FavoriteFilled,
                 MoreCommands = [.. commands],
             });
         }

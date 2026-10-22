@@ -154,4 +154,34 @@ public class SessionFoldersTests
         var item = Assert.Single(new RecentFolders(store).Items);
         Assert.Equal(good, item.Path);
     }
+
+    [Fact]
+    public void TryNormalize_StripsQuotesFromCopyAsPath()
+    {
+        using var temp = new TestFolder();
+        var folder = temp.Create("two words");
+
+        Assert.Equal(folder, FolderPaths.TryNormalize($"\"{folder}\""));
+        Assert.True(FolderPaths.LooksLikePath($"\"{folder}\""));
+    }
+
+    [Fact]
+    public void Expand_BareHomeWithSeparator_KeepsTheSeparator()
+    {
+        Assert.Equal(
+            Path.TrimEndingDirectorySeparator(FolderPaths.UserFolder) + Path.DirectorySeparatorChar,
+            FolderPaths.Expand("~" + Path.DirectorySeparatorChar));
+    }
+
+    [Fact]
+    public void ProbeExists_LocalFolders_AnswersDirectly()
+    {
+        using var temp = new TestFolder();
+
+        Assert.True(FolderPaths.ProbeExists(temp.Path, 1000));
+        Assert.False(FolderPaths.ProbeExists(Path.Combine(temp.Path, "missing"), 1000));
+        Assert.True(FolderPaths.LooksMissing(Path.Combine(temp.Path, "missing")));
+        Assert.False(FolderPaths.IsNetworkPath(temp.Path));
+        Assert.True(FolderPaths.IsNetworkPath(@"\\server\share\repo"));
+    }
 }

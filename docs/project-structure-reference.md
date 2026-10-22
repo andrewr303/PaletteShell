@@ -27,6 +27,8 @@ dotnet build PaletteShellExtension/PaletteShellExtension.csproj
 | `Classes/AgentCli.cs` | Agent CLI model and its `Name \| command args` Settings line format |
 | `Classes/SessionFolders.cs` | Folder path normalization, the favorites line format, and recent folders (`agent-session-recents.txt`) |
 | `Classes/FolderSearch.cs` | Bounded folder index under the default folder and favorites, search ranking, typed-path completion |
+| `Classes/SessionFolderPlanner.cs` | Decides the folder picker's rows for a search text (home list, path completion, search) |
+| `Classes/SettingsEditGuard.cs` | Keeps a stale Settings page save from undoing palette edits to the agent and folder lists |
 | `Classes/AgentSessionLauncher.cs` | Builds and starts the Windows Terminal / console session for an agent in a folder |
 | `Classes/WindowsCommandLine.cs` | Windows (MSVCRT) argument quoting and program/argument splitting |
 | `Pages/AgentSessionsPage.cs`, `SessionFolderPickerPage.cs`, `FavoriteFoldersPage.cs`, `AgentPickerPage.cs` | Agent sessions hub, per-agent folder picker, favorites management, folder-first agent choice |

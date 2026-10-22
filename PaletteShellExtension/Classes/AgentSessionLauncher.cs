@@ -95,7 +95,7 @@ internal static class AgentSessionLauncher
             // cmd.exe reads its own command line raw (it doesn't use the MSVCRT rules), so its
             // /k payload goes in as-is; /s makes it strip exactly the outer pair of quotes.
             var consoleArgs = isCmd
-                ? $"/s {(settings.KeepOpen ? "/k" : "/c")} \"{agent.CommandLine}\""
+                ? $"/s {(settings.KeepOpen ? "/k" : "/c")} \"{CmdCommand(agent, folder)}\""
                 : WindowsCommandLine.Join(PowerShellArgs(agent, folder, title, settings.KeepOpen));
             return new LaunchSpec(shellPath, consoleArgs, folder);
         }
@@ -116,7 +116,8 @@ internal static class AgentSessionLauncher
         {
             // wt re-joins the command it runs, wrapping any argument containing a space in plain
             // quotes, so the /k payload reaches cmd.exe as "<payload>" — which /s then unwraps.
-            wtArgs.AddRange(["/s", settings.KeepOpen ? "/k" : "/c", agent.CommandLine]);
+            // wt would also split this argument at a ';', so escape it as wt's literal "\;".
+            wtArgs.AddRange(["/s", settings.KeepOpen ? "/k" : "/c", CmdCommand(agent, folder).Replace(";", "\\;", StringComparison.Ordinal)]);
         }
         else
         {
@@ -143,6 +144,13 @@ internal static class AgentSessionLauncher
         sb.Append('\n');
         return sb.ToString();
     }
+
+    // cmd.exe can't use a UNC path as its current directory (it falls back to the Windows
+    // folder), so for a share it maps one with pushd first.
+    private static string CmdCommand(AgentCli agent, string folder) =>
+        folder.StartsWith(@"\\", StringComparison.Ordinal)
+            ? $"pushd \"{folder}\" && {agent.CommandLine}"
+            : agent.CommandLine;
 
     private static string[] PowerShellArgs(AgentCli agent, string folder, string title, bool keepOpen)
     {

@@ -30,6 +30,10 @@ public partial class PaletteShellExtensionCommandsProvider : CommandProvider
         // failure modes, but this is the backstop: whatever happens, hand the host a valid
         // provider — worst case a single entry that says why nothing else is here.
         DisplayName = "PaletteShell";
+
+        // The top-level list changes at runtime (agents are added, removed, or hidden from search),
+        // so don't let the host treat it as fixed.
+        Frozen = false;
         try
         {
             Icon = IconHelpers.FromRelativePath("Assets\\StoreLogo.png");

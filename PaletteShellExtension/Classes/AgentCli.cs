@@ -23,11 +23,16 @@ internal sealed record AgentCli(string Name, string Command, string Arguments)
     public string Key => $"{Name}\u001F{CommandLine}";
 }
 
+/// <summary>One line of the stored agent list: its text, and the agent it defines (null for a
+/// blank, comment, or unparseable line, which edits leave untouched).</summary>
+internal sealed record AgentCliLine(string Text, AgentCli? Agent);
+
 /// <summary>
 /// Reads and writes the agent list stored in Settings. The format is one agent per line,
 /// <c>Name | command and arguments</c> (the name and bar are optional), so the list stays
 /// readable and editable straight from the Settings page as well as from the palette forms.
-/// Blank lines and lines starting with <c>#</c> are ignored.
+/// Blank lines and lines starting with <c>#</c> are ignored — and kept as written when the
+/// palette edits the list (see <see cref="ReadLines"/>).
 /// </summary>
 internal static class AgentCliList
 {
@@ -51,14 +56,9 @@ internal static class AgentCliList
     public static List<AgentCli> Parse(string? text)
     {
         var agents = new List<AgentCli>();
-        if (string.IsNullOrWhiteSpace(text))
+        foreach (var line in ReadLines(text))
         {
-            return agents;
-        }
-
-        foreach (var line in SplitLines(text))
-        {
-            if (TryParseLine(line, out var agent) && !agents.Contains(agent))
+            if (line.Agent is { } agent && !agents.Contains(agent))
             {
                 agents.Add(agent);
             }
@@ -66,6 +66,25 @@ internal static class AgentCliList
 
         return agents;
     }
+
+    /// <summary>Splits the stored text into lines, keeping every line (comments and all) so an
+    /// edit can rewrite just the lines it changes and <see cref="WriteLines"/> puts the rest back
+    /// exactly as the user wrote them.</summary>
+    public static List<AgentCliLine> ReadLines(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        return [.. SplitLines(text).Select(line => new AgentCliLine(line, TryParseLine(line, out var agent) ? agent : null))];
+    }
+
+    public static string WriteLines(IEnumerable<AgentCliLine> lines) =>
+        string.Join(Environment.NewLine, lines.Select(l => l.Text));
+
+    /// <summary>A freshly formatted line for <paramref name="agent"/>.</summary>
+    public static AgentCliLine LineFor(AgentCli agent) => new(FormatLine(agent), agent);
 
     /// <summary>Parses one <c>Name | command args</c> line. Without a bar the whole line is the
     /// command line and the name is derived from the program.</summary>
@@ -98,14 +117,21 @@ internal static class AgentCliList
 
     /// <summary>Formats agents back into the stored one-per-line text.</summary>
     public static string Format(IEnumerable<AgentCli> agents) =>
-        string.Join(Environment.NewLine, agents.Select(a => $"{CleanName(a.Name)} {NameSeparator} {a.CommandLine}"));
+        string.Join(Environment.NewLine, agents.Select(FormatLine));
+
+    private static string FormatLine(AgentCli agent) => $"{CleanName(agent.Name)} {NameSeparator} {agent.CommandLine}";
 
     /// <summary>Builds an agent from separate form fields, normalizing the name so it can't
     /// break the line format (no bar, no line breaks) and defaulting it from the command.</summary>
     public static AgentCli? Create(string? name, string? command, string? arguments)
     {
-        // Accept a whole command line pasted into the command field ("claude --model opus").
-        var (program, inlineArgs) = WindowsCommandLine.SplitProgram(command);
+        // Accept a whole command line pasted into the command field ("claude --model opus"),
+        // but an unquoted path to an existing file is the program even with spaces in it
+        // (C:\Program Files\Tool\tool.exe).
+        var trimmed = command?.Trim() ?? "";
+        var (program, inlineArgs) = !trimmed.StartsWith('"') && trimmed.Any(char.IsWhiteSpace) && File.Exists(trimmed)
+            ? (trimmed, "")
+            : WindowsCommandLine.SplitProgram(trimmed);
         if (program.Length == 0)
         {
             return null;
@@ -130,8 +156,9 @@ internal static class AgentCliList
         }
     }
 
+    // No bar (it ends the name) and no leading '#' (the line would read as a comment).
     private static string CleanName(string? name) =>
-        SingleLine(name).Replace(NameSeparator, '/');
+        SingleLine(name).Replace(NameSeparator, '/').TrimStart('#').Trim();
 
     private static string SingleLine(string? value) =>
         string.Join(' ', SplitLines(value ?? "").Select(l => l.Trim()).Where(l => l.Length > 0));

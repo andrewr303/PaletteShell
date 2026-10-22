@@ -25,9 +25,6 @@ internal sealed partial class SessionFolderPickerPage : DynamicListPage
 {
     private static readonly ConcurrentDictionary<string, SessionFolderPickerPage> Pages = new();
 
-    private const int MaxSearchResults = 50;
-    private const int MaxPathCompletions = 40;
-
     // Short: search is in-memory except for path completion, which lists one directory.
     private const int DebounceMs = 120;
 
@@ -84,7 +81,7 @@ internal sealed partial class SessionFolderPickerPage : DynamicListPage
         if (!_started)
         {
             _started = true;
-            _items = BuildItems(SearchText);
+            (_items, IsLoading) = BuildItems(SearchText);
 
             // Warm the index on first open so the first search doesn't start from nothing.
             _service.GetFolderIndex(out _);
@@ -126,10 +123,14 @@ internal sealed partial class SessionFolderPickerPage : DynamicListPage
                     await Task.Delay(delayMs, cts.Token);
                 }
 
-                var items = BuildItems(query);
+                var (items, loading) = BuildItems(query);
+
+                // Items and the spinner are applied together, and only for the newest text, so a
+                // superseded search can't leave stale rows or a stuck spinner behind.
                 if (!cts.IsCancellationRequested)
                 {
                     _items = items;
+                    IsLoading = loading;
                     RaiseItemsChanged();
                 }
             }
@@ -145,137 +146,68 @@ internal sealed partial class SessionFolderPickerPage : DynamicListPage
         });
     }
 
-    private IListItem[] BuildItems(string? query)
+    // Plans the rows (see SessionFolderPlanner for the rules) and renders them as list items.
+    private (IListItem[] Items, bool Loading) BuildItems(string? query)
     {
-        var text = query?.Trim() ?? "";
-        if (text.Length == 0)
-        {
-            IsLoading = false;
-            return BuildHome();
-        }
-
-        if (FolderPaths.LooksLikePath(text))
-        {
-            IsLoading = false;
-            return BuildPathResults(text);
-        }
-
-        return BuildSearchResults(text);
-    }
-
-    // Default folder, then favorites, then recent folders not already listed.
-    private IListItem[] BuildHome()
-    {
-        var items = new List<IListItem>();
+        // Read once per build: it may probe a network share, and every row's menu needs it.
         var defaultFolder = _service.DefaultFolder;
-        items.Add(FolderItem(new FolderCandidate(defaultFolder, FolderSource.Default, defaultFolder), "Default folder"));
-
-        var favorites = _service.Favorites;
-        foreach (var favorite in favorites)
-        {
-            items.Add(FolderItem(new FolderCandidate(favorite, FolderSource.Favorite, favorite), "Favorites"));
-        }
-
-        if (favorites.Count == 0)
-        {
-            items.Add(new ListItem(FavoriteFoldersPage.AddFavoritePage(_service))
-            {
-                Title = "Add a favorite folder",
-                Subtitle = "Favorites are listed here and searched for project folders",
-                Icon = SessionIcons.Add,
-                Section = "Favorites",
-            });
-        }
-
+        var (rows, loading) = SessionFolderPlanner.Plan(_service, defaultFolder, query);
         var now = DateTime.UtcNow;
-        foreach (var recent in _service.Recents.Items)
-        {
-            if (FolderPaths.Same(recent.Path, defaultFolder) || favorites.Any(f => FolderPaths.Same(f, recent.Path)))
-            {
-                continue;
-            }
-
-            var item = FolderItem(new FolderCandidate(recent.Path, FolderSource.Recent, recent.Path), "Recent");
-            item.Tags = [new Tag(SessionFolderItems.RelativeTime(recent.LastUsedUtc, now))];
-            items.Add(item);
-        }
-
-        return [.. items];
+        return ([.. rows.Select(row => ToListItem(row, defaultFolder, now))], loading);
     }
 
-    // A typed path: the folder itself (or an offer to create it), then completions of its last
-    // segment. TextToSuggest lets the user accept a completion and keep typing into it.
-    private IListItem[] BuildPathResults(string text)
+    private IListItem ToListItem(PickerRow row, string defaultFolder, DateTime now)
     {
-        var items = new List<IListItem>();
-        var target = FolderPaths.TryNormalize(text);
-        var endsWithSeparator = text.EndsWith('\\') || text.EndsWith('/');
+        switch (row.Kind)
+        {
+            case PickerRowKind.AddFavorite:
+                return new ListItem(FavoriteFoldersPage.AddFavoritePage(_service))
+                {
+                    Title = "Add a favorite folder",
+                    Subtitle = "Favorites are listed here and searched for project folders",
+                    Icon = SessionIcons.Add,
+                    Section = row.Section ?? "",
+                };
 
-        if (target is not null && FolderPaths.Exists(target))
-        {
-            items.Add(FolderItem(new FolderCandidate(target, FolderSource.Typed, target), suggest: true));
-        }
-        else if (target is not null && !endsWithSeparator && Path.GetDirectoryName(target) is { } parent && FolderPaths.Exists(parent))
-        {
-            items.Add(new ListItem(new LaunchAgentSessionCommand(_service, _agent, target, createFolder: true))
-            {
-                Title = $"New folder: {FolderPaths.DisplayName(target)}",
-                Subtitle = $"Create {target} and start {_agent.Name} there",
-                Icon = SessionIcons.NewFolder,
-            });
-        }
-
-        foreach (var child in FolderSearch.CompletePath(text, MaxPathCompletions))
-        {
-            if (!FolderPaths.Same(child, target))
-            {
-                items.Add(FolderItem(new FolderCandidate(child, FolderSource.Typed, child), suggest: true));
-            }
+            case PickerRowKind.CreateFolder:
+                return new ListItem(new LaunchAgentSessionCommand(_service, _agent, row.Path, createFolder: true))
+                {
+                    Title = $"New folder: {FolderPaths.DisplayName(row.Path)}",
+                    Subtitle = $"Create {row.Path} and start {_agent.Name} there",
+                    Icon = SessionIcons.NewFolder,
+                };
         }
 
-        return [.. items];
-    }
-
-    private IListItem[] BuildSearchResults(string text)
-    {
-        var index = _service.GetFolderIndex(out var building);
-        IsLoading = building;
-
-        var defaultFolder = _service.DefaultFolder;
-        var candidates = new List<FolderCandidate> { new(defaultFolder, FolderSource.Default, defaultFolder) };
-        candidates.AddRange(_service.Favorites.Select(f => new FolderCandidate(f, FolderSource.Favorite, f)));
-        candidates.AddRange(_service.Recents.Items.Select(r => new FolderCandidate(r.Path, FolderSource.Recent, r.Path)));
-        candidates.AddRange(index.Select(e => new FolderCandidate(e.Path, FolderSource.Indexed, e.SearchText, e.Depth, e.IsRepo)));
-
-        return [.. FolderSearch.Rank(candidates, text, MaxSearchResults).Select(c => FolderItem(c))];
-    }
-
-    private ListItem FolderItem(FolderCandidate candidate, string? section = null, bool suggest = false)
-    {
-        var exists = candidate.Source is FolderSource.Indexed or FolderSource.Typed || FolderPaths.Exists(candidate.Path);
-        var item = new ListItem(new LaunchAgentSessionCommand(_service, _agent, candidate.Path))
+        // Indexed and typed folders were just seen on disk; only stored ones can have gone missing.
+        var missing = row.Source is not (FolderSource.Indexed or FolderSource.Typed) && FolderPaths.LooksMissing(row.Path);
+        var item = new ListItem(new LaunchAgentSessionCommand(_service, _agent, row.Path))
         {
-            Title = SessionFolderItems.Title(candidate.Path),
-            Subtitle = exists ? candidate.Path : $"⚠ Not found — {candidate.Path}",
-            Icon = !exists ? SessionIcons.Warning : candidate.Source switch
+            Title = SessionFolderItems.Title(row.Path),
+            Subtitle = missing ? $"⚠ Not found — {row.Path}" : row.Path,
+            Icon = missing ? SessionIcons.Warning : row.Source switch
             {
                 FolderSource.Default => SessionIcons.Home,
                 FolderSource.Favorite => SessionIcons.FavoriteFilled,
                 FolderSource.Recent => SessionIcons.Recent,
-                _ when candidate.IsRepo => SessionIcons.Repo,
+                _ when row.IsRepo => SessionIcons.Repo,
                 _ => SessionIcons.Folder,
             },
-            MoreCommands = SessionFolderItems.FolderCommands(_service, candidate.Path, _agent),
+            MoreCommands = SessionFolderItems.FolderCommands(_service, row.Path, _agent, defaultFolder),
         };
 
-        if (section is not null)
+        if (row.Section is not null)
         {
-            item.Section = section;
+            item.Section = row.Section;
         }
 
-        if (suggest)
+        if (row.SuggestText is not null)
         {
-            item.TextToSuggest = candidate.Path + Path.DirectorySeparatorChar;
+            item.TextToSuggest = row.SuggestText;
+        }
+
+        if (row.LastUsedUtc is { } lastUsed)
+        {
+            item.Tags = [new Tag(SessionFolderItems.RelativeTime(lastUsed, now))];
         }
 
         return item;

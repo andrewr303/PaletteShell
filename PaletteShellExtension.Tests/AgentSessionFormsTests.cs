@@ -99,4 +99,19 @@ public sealed class AgentSessionFormsTests : IDisposable
         new DefaultSessionFolderForm(_service).SubmitForm(Inputs(("folder", "")), "{}");
         Assert.Null(_service.ConfiguredDefaultFolder);
     }
+
+    [Fact]
+    public void AgentCliForm_EditingAnAgentWithASpacedPath_RoundTripsUnchanged()
+    {
+        var agent = new AgentCli("Tool", "C:/Program Files/Tool/tool.exe", "--x");
+        _service.SaveAgent(null, agent);
+        var template = JsonDocument.Parse(new AgentCliForm(_service, agent).TemplateJson);
+        var shownCommand = template.RootElement.GetProperty("body").EnumerateArray()
+            .Single(e => e.TryGetProperty("id", out var id) && id.GetString() == "command")
+            .GetProperty("value").GetString()!;
+
+        new AgentCliForm(_service, agent).SubmitForm(Inputs(("command", shownCommand), ("arguments", "--x"), ("name", "Tool")), "{}");
+
+        Assert.Equal(agent, _service.Agents[^1]);
+    }
 }

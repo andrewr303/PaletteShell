@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace PaletteShellExtension.Classes;
 
@@ -17,7 +19,7 @@ internal static class FolderPaths
     /// environment variable (<c>%USERPROFILE%</c>).</summary>
     public static bool LooksLikePath(string? text)
     {
-        var t = text?.Trim() ?? "";
+        var t = text?.Trim().TrimStart('"') ?? "";
         if (t.Length == 0)
         {
             return false;
@@ -27,10 +29,11 @@ internal static class FolderPaths
             || (t.Length >= 2 && char.IsAsciiLetter(t[0]) && t[1] == ':');
     }
 
-    /// <summary>Expands a leading <c>~</c> to the user folder and any <c>%VAR%</c> references.</summary>
+    /// <summary>Expands a leading <c>~</c> to the user folder and any <c>%VAR%</c> references, and
+    /// drops surrounding quotes (Explorer's "Copy as path" adds them).</summary>
     public static string Expand(string text)
     {
-        var t = Environment.ExpandEnvironmentVariables(text.Trim());
+        var t = Environment.ExpandEnvironmentVariables(text.Trim().Trim('"').Trim());
         if (t == "~")
         {
             return UserFolder;
@@ -38,7 +41,9 @@ internal static class FolderPaths
 
         if (t.Length >= 2 && t[0] == '~' && (t[1] == '\\' || t[1] == '/'))
         {
-            return Path.Join(UserFolder, t[2..]);
+            // Concatenated rather than Path.Join'd so a bare "~\" keeps its trailing separator,
+            // which path completion reads as "list the user folder's children".
+            return Path.TrimEndingDirectorySeparator(UserFolder) + Path.DirectorySeparatorChar + t[2..];
         }
 
         return t;
@@ -98,33 +103,89 @@ internal static class FolderPaths
             return false;
         }
     }
+
+    // Network paths that recently didn't answer within a probe's timeout, and until when to
+    // stop asking: page rebuilds happen often, and each would otherwise wait out the timeout again.
+    private static readonly ConcurrentDictionary<string, DateTime> UnresponsivePaths = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan UnresponsiveBackoff = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Whether a folder exists, without risking a long hang on the caller's thread. Local paths
+    /// are checked directly; a network path (UNC or a mapped drive) — which can block for tens of
+    /// seconds when its share is offline — gets <paramref name="timeoutMs"/>, after which the
+    /// answer is null (unknown) and stays unknown for a short back-off.
+    /// </summary>
+    public static bool? ProbeExists(string folder, int timeoutMs)
+    {
+        if (!IsNetworkPath(folder))
+        {
+            return Exists(folder);
+        }
+
+        if (UnresponsivePaths.TryGetValue(folder, out var until) && until > DateTime.UtcNow)
+        {
+            return null;
+        }
+
+        var check = Task.Run(() => Exists(folder));
+        if (check.Wait(timeoutMs))
+        {
+            UnresponsivePaths.TryRemove(folder, out _);
+            return check.Result;
+        }
+
+        UnresponsivePaths[folder] = DateTime.UtcNow + UnresponsiveBackoff;
+        return null;
+    }
+
+    /// <summary>True only when the folder is confirmed missing — for "not found" hints on list
+    /// rows, which mustn't stall the list for a share that's slow to answer.</summary>
+    public static bool LooksMissing(string folder) => ProbeExists(folder, 250) == false;
+
+    /// <summary>UNC paths and paths on mapped network drives.</summary>
+    internal static bool IsNetworkPath(string path)
+    {
+        if (path.StartsWith(@"\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        try
+        {
+            var root = Path.GetPathRoot(path);
+            return !string.IsNullOrEmpty(root) && new DriveInfo(root).DriveType == DriveType.Network;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
 }
+
+/// <summary>One line of the stored favorites: its text, and the folder it names (null for a
+/// blank, comment, or invalid line, which edits leave untouched).</summary>
+internal sealed record FavoriteFolderLine(string Text, string? Folder);
 
 /// <summary>
 /// Reads and writes the favorite-folder list stored in Settings: one folder per line, so it's
 /// editable from the Settings page as well as with the palette's add/remove commands. Entries are
 /// normalized and de-duplicated on read, but folders that don't currently exist are kept — an
-/// unplugged drive or offline share may come back.
+/// unplugged drive or offline share may come back. Palette edits go through
+/// <see cref="ReadLines"/>/<see cref="WriteLines"/>, so comments and hand-written lines survive.
 /// </summary>
 internal static class FavoriteFolderList
 {
     public static List<string> Parse(string? text)
     {
         var folders = new List<string>();
-        if (string.IsNullOrWhiteSpace(text))
+        foreach (var line in ReadLines(text))
         {
-            return folders;
-        }
-
-        foreach (var line in text.Split(["\r\n", "\n", "\r"], StringSplitOptions.None))
-        {
-            var trimmed = line.Trim();
-            if (trimmed.Length == 0 || trimmed.StartsWith('#'))
-            {
-                continue;
-            }
-
-            if (FolderPaths.TryNormalize(trimmed) is { } folder && !folders.Any(f => FolderPaths.Same(f, folder)))
+            if (line.Folder is { } folder && !folders.Any(f => FolderPaths.Same(f, folder)))
             {
                 folders.Add(folder);
             }
@@ -134,6 +195,24 @@ internal static class FavoriteFolderList
     }
 
     public static string Format(IEnumerable<string> folders) => string.Join(Environment.NewLine, folders);
+
+    public static List<FavoriteFolderLine> ReadLines(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        return [.. text.Split(["\r\n", "\n", "\r"], StringSplitOptions.None).Select(line =>
+        {
+            var trimmed = line.Trim();
+            var folder = trimmed.Length == 0 || trimmed.StartsWith('#') ? null : FolderPaths.TryNormalize(trimmed);
+            return new FavoriteFolderLine(line, folder);
+        })];
+    }
+
+    public static string WriteLines(IEnumerable<FavoriteFolderLine> lines) =>
+        string.Join(Environment.NewLine, lines.Select(l => l.Text));
 }
 
 /// <summary>A folder a session was recently started in.</summary>

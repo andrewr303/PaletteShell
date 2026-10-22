@@ -108,34 +108,47 @@ internal sealed class PaletteShellSettingsManager : JsonSettingsManager, IAgentS
     /// <see cref="AgentSessionService"/> announces those itself.</summary>
     public event EventHandler? AgentSessionSettingsChanged;
 
+    // The lists below are edited from the palette as well as the Settings page; see
+    // SettingsEditGuard for why a Settings save is reconciled against palette edits.
+    private readonly SettingsEditGuard _editGuard = new();
+
+    private static string NormalizeAgents(string? text) => AgentCliList.Format(AgentCliList.Parse(text));
+
+    private static string NormalizeFavorites(string? text) => FavoriteFolderList.Format(FavoriteFolderList.Parse(text));
+
+    private static string NormalizeFolder(string? text) => FolderPaths.TryNormalize(text) ?? string.Empty;
+
     string IAgentSessionSettings.AgentsText
     {
         get => _sessionAgents.Value ?? string.Empty;
-        set
-        {
-            _sessionAgents.Value = value;
-            SaveSettings();
-        }
+        set => SetFromPalette(_sessionAgents, value, NormalizeAgents);
     }
 
     string IAgentSessionSettings.FavoriteFoldersText
     {
         get => _sessionFavoriteFolders.Value ?? string.Empty;
-        set
-        {
-            _sessionFavoriteFolders.Value = value;
-            SaveSettings();
-        }
+        set => SetFromPalette(_sessionFavoriteFolders, value, NormalizeFavorites);
     }
 
     string? IAgentSessionSettings.DefaultSessionFolder
     {
         get => string.IsNullOrWhiteSpace(_sessionDefaultFolder.Value) ? null : _sessionDefaultFolder.Value.Trim();
-        set
-        {
-            _sessionDefaultFolder.Value = value ?? string.Empty;
-            SaveSettings();
-        }
+        set => SetFromPalette(_sessionDefaultFolder, value ?? string.Empty, NormalizeFolder);
+    }
+
+    private void SetFromPalette(TextSetting setting, string value, Func<string?, string> normalize)
+    {
+        _editGuard.RecordPaletteEdit(setting.Key, setting.Value, value, normalize);
+        setting.Value = value;
+        SaveSettings();
+    }
+
+    // Called when the Settings page is saved, before persisting: undo any stale write-back.
+    private void ReconcileSettingsPageSave()
+    {
+        _sessionAgents.Value = _editGuard.Reconcile(_sessionAgents.Key, _sessionAgents.Value, NormalizeAgents);
+        _sessionFavoriteFolders.Value = _editGuard.Reconcile(_sessionFavoriteFolders.Key, _sessionFavoriteFolders.Value, NormalizeFavorites);
+        _sessionDefaultFolder.Value = _editGuard.Reconcile(_sessionDefaultFolder.Key, _sessionDefaultFolder.Value, NormalizeFolder);
     }
 
     AgentLaunchSettings IAgentSessionSettings.LaunchSettings => new(
@@ -323,6 +336,7 @@ internal sealed class PaletteShellSettingsManager : JsonSettingsManager, IAgentS
 
         Settings.SettingsChanged += (_, _) =>
         {
+            ReconcileSettingsPageSave();
             SaveSettings();
             AgentSessionSettingsChanged?.Invoke(this, EventArgs.Empty);
         };

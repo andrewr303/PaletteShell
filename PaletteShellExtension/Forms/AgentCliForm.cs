@@ -15,6 +15,9 @@ internal sealed partial class AgentCliForm : FormContent
         _existing = existing;
 
         var heading = existing is null ? "Add agent CLI" : $"Edit {existing.Name}";
+
+        // The command is shown quoted when it has spaces, so saving it unchanged doesn't split a
+        // path like C:\Program Files\Tool\tool.exe into a program and arguments.
         TemplateJson = $$"""
 {
   "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -28,7 +31,7 @@ internal sealed partial class AgentCliForm : FormContent
       "id": "command",
       "label": "Command",
       "placeholder": "claude",
-      "value": "{{FormJson.Escape(existing?.Command)}}",
+      "value": "{{FormJson.Escape(existing is null ? null : WindowsCommandLine.JoinProgram(existing.Command, null))}}",
       "isRequired": true,
       "errorMessage": "Enter the command to run"
     },
